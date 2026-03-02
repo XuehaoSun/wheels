@@ -70,20 +70,22 @@ stages:
 
         steps:
           - script: |
-              curl -LsSf https://astral.sh/uv/$(UV_VERSION)/install.sh | sh
-              
+              apt-get update
+              apt-get install -y curl
+              curl -LsSf https://astral.sh/uv/install.sh | sh
               export PATH="$HOME/.cargo/bin:$PATH"
               echo "##vso[task.setvariable variable=PATH]$HOME/.cargo/bin:$(PATH)"
 
               uv --version
-            displayName: 'Install uv $(UV_VERSION)'
+            displayName: "Install uv $(UV_VERSION)"
+
           - script: |
               uv python install $(PYTHON_VERSION)
               uv venv .venv --python $(PYTHON_VERSION)
 
               echo "##vso[task.setvariable variable=VIRTUAL_ENV]$(Build.SourcesDirectory)/.venv"
               echo "##vso[task.prependpath]$(Build.SourcesDirectory)/.venv/bin"
-            displayName: 'Setup Python $(PYTHON_VERSION) with uv'
+            displayName: "Setup Python $(PYTHON_VERSION) with uv"
 
           - script: |
               pip install --upgrade pip setuptools wheel build

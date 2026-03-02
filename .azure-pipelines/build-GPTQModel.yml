@@ -69,27 +69,14 @@ stages:
           image: $(IMAGE_VERSION)
 
         steps:
-          - script: |
-              apt-get update
-              apt-get install -y curl
-              curl -LsSf https://astral.sh/uv/install.sh | sh
-              export PATH="$HOME/.cargo/bin:$PATH"
-              echo "##vso[task.setvariable variable=PATH]$HOME/.cargo/bin:$(PATH)"
-
-              uv --version
-            displayName: "Install uv $(UV_VERSION)"
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '$(PYTHON_VERSION)'
+            displayName: 'Setup Python $(PYTHON_VERSION)'
 
           - script: |
-              uv python install $(PYTHON_VERSION)
-              uv venv .venv --python $(PYTHON_VERSION)
-
-              echo "##vso[task.setvariable variable=VIRTUAL_ENV]$(Build.SourcesDirectory)/.venv"
-              echo "##vso[task.prependpath]$(Build.SourcesDirectory)/.venv/bin"
-            displayName: "Setup Python $(PYTHON_VERSION) with uv"
-
-          - script: |
-              pip install --upgrade pip setuptools wheel build
-              pip install twine
+              pip install --upgrade pip setuptools wheel build uv
+              uv pip install twine
             displayName: "Install Build Tools"
 
           - script: |

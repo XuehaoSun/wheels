@@ -1,0 +1,201 @@
+trigger: none
+pr: none
+
+parameters:
+  - name: version
+    type: string
+    default: "v5.7.0"
+
+variables:
+  TORCH_VERSION: "2.10.0"
+  CUDA_VERSIONS: "12.8,13.0"
+
+stages:
+  - stage: BuildWheels
+    displayName: "Build CUDA Wheels"
+    jobs:
+      - job: BuildMatrix
+        displayName: "Build Matrix"
+        strategy:
+          matrix:
+            # CUDA 12.8 + Python 3.10/3.11/3.12/3.13
+            # cu128_py310:
+            #   CUDA_VERSION: "12.8"
+            #   PYTHON_VERSION: "3.10"
+            #   TORCH_INDEX: "https://download.pytorch.org/whl/cu128"
+            #   IMAGE_VERSION: "nvidia/cuda:12.8.1-devel-ubuntu24.04"
+            # cu128_py311:
+            #   CUDA_VERSION: "12.8"
+            #   PYTHON_VERSION: "3.11"
+            #   TORCH_INDEX: "https://download.pytorch.org/whl/cu128"
+            #   IMAGE_VERSION: "nvidia/cuda:12.8.1-devel-ubuntu24.04"
+            cu128_py312:
+              CUDA_VERSION: "12.8"
+              PYTHON_VERSION: "3.12"
+              TORCH_INDEX: "https://download.pytorch.org/whl/cu128"
+              IMAGE_VERSION: "nvidia/cuda:12.8.1-devel-ubuntu24.04"
+            # cu128_py313:
+            #   CUDA_VERSION: "12.8"
+            #   PYTHON_VERSION: "3.13"
+            #   TORCH_INDEX: "https://download.pytorch.org/whl/cu128"
+            #   IMAGE_VERSION: "nvidia/cuda:12.8.1-devel-ubuntu24.04"
+
+            # CUDA 13.0 + Python 3.10/3.11/3.12/3.13
+            # cu130_py310:
+            #   CUDA_VERSION: "13.0"
+            #   PYTHON_VERSION: "3.10"
+            #   TORCH_INDEX: "https://download.pytorch.org/whl/cu130"
+            #   IMAGE_VERSION: "nvidia/cuda:13.0.2-devel-ubuntu24.04"
+            # cu130_py311:
+            #   CUDA_VERSION: "13.0"
+            #   PYTHON_VERSION: "3.11"
+            #   TORCH_INDEX: "https://download.pytorch.org/whl/cu130"
+            #   IMAGE_VERSION: "nvidia/cuda:13.0.2-devel-ubuntu24.04"
+            cu130_py312:
+              CUDA_VERSION: "13.0"
+              PYTHON_VERSION: "3.12"
+              TORCH_INDEX: "https://download.pytorch.org/whl/cu130"
+              IMAGE_VERSION: "nvidia/cuda:13.0.2-devel-ubuntu24.04"
+            # cu130_py313:
+            #   CUDA_VERSION: "13.0"
+            #   PYTHON_VERSION: "3.13"
+            #   TORCH_INDEX: "https://download.pytorch.org/whl/cu130"
+            #   IMAGE_VERSION: "nvidia/cuda:13.0.2-devel-ubuntu24.04"
+
+        pool:
+          vmImage: "ubuntu-latest"
+
+        container:
+          image: $(IMAGE_VERSION)
+
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: "$(PYTHON_VERSION)"
+            displayName: "Setup Python $(PYTHON_VERSION)"
+
+          - script: |
+              apt-get update -q
+              apt-get install -y --no-install-recommends \
+                python3-pip \
+                python3-dev \
+                python-is-python3 \
+                git \
+                build-essential \
+                ninja-build
+              rm -rf /var/lib/apt/lists/*
+            displayName: "Install System Dependencies"
+
+          - script: |
+              python -m pip install --upgrade pip setuptools wheel build
+              pip install twine
+            displayName: "Install Build Tools"
+
+          - script: |
+              if [ "$(CUDA_VERSION)" != "cpu" ]; then
+                echo "##vso[task.setvariable variable=CUDA_HOME]/usr/local/cuda"
+                echo "##vso[task.setvariable variable=PATH]/usr/local/cuda/bin:$(PATH)"
+                echo "##vso[task.setvariable variable=LD_LIBRARY_PATH]/usr/local/cuda/lib64:$(LD_LIBRARY_PATH)"
+                echo "##vso[task.setvariable variable=FORCE_CUDA]1"
+                
+                # 验证 CUDA 可用性
+                nvcc --version
+                nvidia-smi || echo "No GPU available in container"
+              else
+                echo "##vso[task.setvariable variable=FORCE_CUDA]0"
+                echo "Building CPU-only version"
+              fi
+            displayName: "Setup CUDA $(CUDA_VERSION) Environment"
+
+          - script: |
+              pip install torch==$(TORCH_VERSION) --index-url $(TORCH_INDEX)
+              pip install numpy transformers accelerate sentencepiece
+              python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}'); print(f'CUDA version: {torch.version.cuda if torch.cuda.is_available() else \"N/A\"}')"
+            displayName: "Install Torch $(TORCH_VERSION) with CUDA $(CUDA_VERSION)"
+
+          - script: |
+              git clone https://github.com/ModelCloud/GPTQModel.git /GPTQModel
+
+          - script: |
+              export BUILD_CUDA_EXT=1
+              export TORCH_CUDA_ARCH_LIST="7.0;7.5;8.0;8.6;8.9;9.0"  # 根据需要的 GPU 架构调整
+
+              # 生成带 CUDA 标签的版本
+              if [ "$(CUDA_VERSION)" == "cpu" ]; then
+                export WHEEL_SUFFIX="+cpu"
+              else
+                export WHEEL_SUFFIX="+cu$(echo $(CUDA_VERSION) | tr -d '.')"
+              fi
+
+              # 构建 wheel（GPTQModel 使用 --no-build-isolation）
+              cd /GPTQModel
+              git checkout ${{ parameters.version }}
+
+              pip wheel . \
+                --no-build-isolation \
+                -w dist/ \
+                --verbose
+
+              # 重命名 wheel 添加 CUDA 标签
+              cd dist
+              for file in *.whl; do
+                if [[ "$file" == *"gptqmodel"* ]] && [[ ! "$file" =~ \+(cu|cpu) ]]; then
+                  newname=$(echo "$file" | sed "s/-cp/${WHEEL_SUFFIX}-cp/")
+                  mv "$file" "$newname"
+                  echo "Renamed: $file -> $newname"
+                fi
+              done
+              ls -la
+            displayName: "Build GPTQModel Wheel"
+
+          - script: |
+              cd dist
+              pip install gptqmodel*.whl --force-reinstall --no-deps
+              python -c "import gptqmodel; print(f'GPTQModel imported successfully')"
+            displayName: "Test Wheel Import"
+            condition: succeeded()
+
+          - task: PublishBuildArtifacts@1
+            inputs:
+              pathToPublish: "$(Build.SourcesDirectory)/dist"
+              artifactName: "wheels-$(CUDA_VERSION)-py$(PYTHON_VERSION)"
+            displayName: "Publish Wheel Artifact"
+
+  - stage: PublishToFeed
+    displayName: "Publish to Azure Artifacts Feed"
+    dependsOn: BuildWheels
+    condition: succeeded()
+    jobs:
+      - job: Upload
+        displayName: "Upload to PyPI Feed"
+        pool:
+          vmImage: "ubuntu-latest"
+
+        steps:
+          - task: DownloadBuildArtifacts@1
+            inputs:
+              buildType: "current"
+              downloadType: "all"
+              downloadPath: "$(System.ArtifactsDirectory)"
+            displayName: "Download All Wheels"
+
+          - script: |
+              mkdir -p $(Build.ArtifactStagingDirectory)/wheels
+              find $(System.ArtifactsDirectory) -name "*.whl" -type f -exec cp {} $(Build.ArtifactStagingDirectory)/wheels/ \;
+              ls -la $(Build.ArtifactStagingDirectory)/wheels/
+            displayName: "Collect All Wheels"
+
+          - task: TwineAuthenticate@1
+            inputs:
+              artifactFeed: "$(System.TeamProject)/gptqmodel-wheels"
+
+          - script: |
+              pip install twine
+              twine upload $(Build.ArtifactStagingDirectory)/wheels/* \
+                --skip-existing \
+                --verbose
+            displayName: "Upload to Azure Artifacts Feed"
+            env:
+              TWINE_USERNAME: "$(TWINE_USERNAME)"
+              TWINE_PASSWORD: "$(TWINE_PASSWORD)"
+              TWINE_REPOSITORY_URL: "$(TWINE_REPOSITORY_URL)"

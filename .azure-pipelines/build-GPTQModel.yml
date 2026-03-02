@@ -29,11 +29,11 @@ stages:
             #   PYTHON_VERSION: "3.11"
             #   TORCH_INDEX: "https://download.pytorch.org/whl/cu128"
             #   IMAGE_VERSION: "nvidia/cuda:12.8.1-devel-ubuntu24.04"
-            cu128_py312:
-              CUDA_VERSION: "12.8"
-              PYTHON_VERSION: "3.12"
-              TORCH_INDEX: "https://download.pytorch.org/whl/cu128"
-              IMAGE_VERSION: "nvidia/cuda:12.8.1-devel-ubuntu24.04"
+            # cu128_py312:
+            #   CUDA_VERSION: "12.8"
+            #   PYTHON_VERSION: "3.12"
+            #   TORCH_INDEX: "https://download.pytorch.org/whl/cu128"
+            #   IMAGE_VERSION: "nvidia/cuda:12.8.1-devel-ubuntu24.04"
             # cu128_py313:
             #   CUDA_VERSION: "12.8"
             #   PYTHON_VERSION: "3.13"
@@ -69,22 +69,21 @@ stages:
           image: $(IMAGE_VERSION)
 
         steps:
-          - task: UsePythonVersion@0
-            inputs:
-              versionSpec: "$(PYTHON_VERSION)"
-            displayName: "Setup Python $(PYTHON_VERSION)"
-
           - script: |
-              sudo apt-get update -q
-              sudo apt-get install -y --no-install-recommends \
-                python3-pip \
-                python3-dev \
-                python-is-python3 \
-                git \
-                build-essential \
-                ninja-build
-              rm -rf /var/lib/apt/lists/*
-            displayName: "Install System Dependencies"
+              curl -LsSf https://astral.sh/uv/$(UV_VERSION)/install.sh | sh
+              
+              export PATH="$HOME/.cargo/bin:$PATH"
+              echo "##vso[task.setvariable variable=PATH]$HOME/.cargo/bin:$(PATH)"
+
+              uv --version
+            displayName: 'Install uv $(UV_VERSION)'
+          - script: |
+              uv python install $(PYTHON_VERSION)
+              uv venv .venv --python $(PYTHON_VERSION)
+
+              echo "##vso[task.setvariable variable=VIRTUAL_ENV]$(Build.SourcesDirectory)/.venv"
+              echo "##vso[task.prependpath]$(Build.SourcesDirectory)/.venv/bin"
+            displayName: 'Setup Python $(PYTHON_VERSION) with uv'
 
           - script: |
               pip install --upgrade pip setuptools wheel build
@@ -108,8 +107,8 @@ stages:
             displayName: "Setup CUDA $(CUDA_VERSION) Environment"
 
           - script: |
-              pip install torch==$(TORCH_VERSION) --index-url $(TORCH_INDEX)
-              pip install numpy transformers accelerate sentencepiece
+              uv pip install torch==$(TORCH_VERSION) --index-url $(TORCH_INDEX)
+              uv pip install numpy transformers accelerate sentencepiece
               python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}'); print(f'CUDA version: {torch.version.cuda if torch.cuda.is_available() else \"N/A\"}')"
             displayName: "Install Torch $(TORCH_VERSION) with CUDA $(CUDA_VERSION)"
 
@@ -127,14 +126,10 @@ stages:
                 export WHEEL_SUFFIX="+cu$(echo $(CUDA_VERSION) | tr -d '.')"
               fi
 
-              # 构建 wheel（GPTQModel 使用 --no-build-isolation）
               cd /GPTQModel
               git checkout ${{ parameters.version }}
 
-              pip wheel . \
-                --no-build-isolation \
-                -w dist/ \
-                --verbose
+              python setup.py bdist_wheel
 
               # 重命名 wheel 添加 CUDA 标签
               cd dist
@@ -150,7 +145,7 @@ stages:
 
           - script: |
               cd dist
-              pip install gptqmodel*.whl --force-reinstall --no-deps
+              uv pip install gptqmodel*.whl --force-reinstall --no-deps
               python -c "import gptqmodel; print(f'GPTQModel imported successfully')"
             displayName: "Test Wheel Import"
             condition: succeeded()

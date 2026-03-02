@@ -75,8 +75,8 @@ stages:
             displayName: "Setup Python $(PYTHON_VERSION)"
 
           - script: |
-              apt-get update -q
-              apt-get install -y --no-install-recommends \
+              sudo apt-get update -q
+              sudo apt-get install -y --no-install-recommends \
                 python3-pip \
                 python3-dev \
                 python-is-python3 \
@@ -87,7 +87,7 @@ stages:
             displayName: "Install System Dependencies"
 
           - script: |
-              python -m pip install --upgrade pip setuptools wheel build
+              pip install --upgrade pip setuptools wheel build
               pip install twine
             displayName: "Install Build Tools"
 

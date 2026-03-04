@@ -6,6 +6,7 @@ apt-get update
 apt-get install -y curl git build-essential
 curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="$HOME/.cargo/bin:$PATH"
+source $HOME/.local/bin/env
 uv --version
 
 echo "=== 2. Setup CUDA Environment ==="

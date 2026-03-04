@@ -18,14 +18,14 @@ stages:
         displayName: "Build Matrix"
         strategy:
           matrix:
-            CUDA_12_6:
-              CUDA_VERSION: "12.6"
-              TORCH_INDEX: "https://download.pytorch.org/whl/cu126"
-              IMAGE_VERSION: "nvidia/cuda:12.6.1-devel-ubuntu24.04"
-            CUDA_12_8:
-              CUDA_VERSION: "12.8"
-              TORCH_INDEX: "https://download.pytorch.org/whl/cu128"
-              IMAGE_VERSION: "nvidia/cuda:12.8.1-devel-ubuntu24.04"
+            # CUDA_12_6:
+            #   CUDA_VERSION: "12.6"
+            #   TORCH_INDEX: "https://download.pytorch.org/whl/cu126"
+            #   IMAGE_VERSION: "nvidia/cuda:12.6.1-devel-ubuntu24.04"
+            # CUDA_12_8:
+            #   CUDA_VERSION: "12.8"
+            #   TORCH_INDEX: "https://download.pytorch.org/whl/cu128"
+            #   IMAGE_VERSION: "nvidia/cuda:12.8.1-devel-ubuntu24.04"
             CUDA_13_0:
               CUDA_VERSION: "13.0"
               TORCH_INDEX: "https://download.pytorch.org/whl/cu130"

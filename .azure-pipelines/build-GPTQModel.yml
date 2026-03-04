@@ -8,7 +8,7 @@ parameters:
 
 variables:
   TORCH_VERSION: "2.10.0"
-  CUDA_VERSIONS: "12.8,13.0"
+  PYTHON_VERSIONS: "3.10 3.11 3.12 3.13"
 
 stages:
   - stage: BuildWheels
@@ -18,145 +18,50 @@ stages:
         displayName: "Build Matrix"
         strategy:
           matrix:
-            # CUDA 12.8 + Python 3.10/3.11/3.12/3.13
-            # cu128_py310:
-            #   CUDA_VERSION: "12.8"
-            #   PYTHON_VERSION: "3.10"
-            #   TORCH_INDEX: "https://download.pytorch.org/whl/cu128"
-            #   IMAGE_VERSION: "nvidia/cuda:12.8.1-devel-ubuntu24.04"
-            # cu128_py311:
-            #   CUDA_VERSION: "12.8"
-            #   PYTHON_VERSION: "3.11"
-            #   TORCH_INDEX: "https://download.pytorch.org/whl/cu128"
-            #   IMAGE_VERSION: "nvidia/cuda:12.8.1-devel-ubuntu24.04"
-            # cu128_py312:
-            #   CUDA_VERSION: "12.8"
-            #   PYTHON_VERSION: "3.12"
-            #   TORCH_INDEX: "https://download.pytorch.org/whl/cu128"
-            #   IMAGE_VERSION: "nvidia/cuda:12.8.1-devel-ubuntu24.04"
-            # cu128_py313:
-            #   CUDA_VERSION: "12.8"
-            #   PYTHON_VERSION: "3.13"
-            #   TORCH_INDEX: "https://download.pytorch.org/whl/cu128"
-            #   IMAGE_VERSION: "nvidia/cuda:12.8.1-devel-ubuntu24.04"
-
-            # CUDA 13.0 + Python 3.10/3.11/3.12/3.13
-            # cu130_py310:
-            #   CUDA_VERSION: "13.0"
-            #   PYTHON_VERSION: "3.10"
-            #   TORCH_INDEX: "https://download.pytorch.org/whl/cu130"
-            #   IMAGE_VERSION: "nvidia/cuda:13.0.2-devel-ubuntu24.04"
-            # cu130_py311:
-            #   CUDA_VERSION: "13.0"
-            #   PYTHON_VERSION: "3.11"
-            #   TORCH_INDEX: "https://download.pytorch.org/whl/cu130"
-            #   IMAGE_VERSION: "nvidia/cuda:13.0.2-devel-ubuntu24.04"
-            cu130_py312:
+            CUDA_12_6:
+              CUDA_VERSION: "12.6"
+              TORCH_INDEX: "https://download.pytorch.org/whl/cu126"
+              IMAGE_VERSION: "nvidia/cuda:12.6.1-devel-ubuntu24.04"
+            CUDA_12_8:
+              CUDA_VERSION: "12.8"
+              TORCH_INDEX: "https://download.pytorch.org/whl/cu128"
+              IMAGE_VERSION: "nvidia/cuda:12.8.1-devel-ubuntu24.04"
+            CUDA_13_0:
               CUDA_VERSION: "13.0"
-              PYTHON_VERSION: "3.12"
               TORCH_INDEX: "https://download.pytorch.org/whl/cu130"
               IMAGE_VERSION: "nvidia/cuda:13.0.2-devel-ubuntu24.04"
-            # cu130_py313:
-            #   CUDA_VERSION: "13.0"
-            #   PYTHON_VERSION: "3.13"
-            #   TORCH_INDEX: "https://download.pytorch.org/whl/cu130"
-            #   IMAGE_VERSION: "nvidia/cuda:13.0.2-devel-ubuntu24.04"
 
         pool:
           vmImage: "ubuntu-latest"
 
-        container:
-          image: $(IMAGE_VERSION)
-          options: --user root
-
         steps:
-          - script: |
-              apt-get update
-              apt-get install -y curl
-              curl -LsSf https://astral.sh/uv/install.sh | sh
-              export PATH="$HOME/.cargo/bin:$PATH"
-              echo "##vso[task.setvariable variable=PATH]$HOME/.cargo/bin:$(PATH)"
-
-              uv --version
-            displayName: "Install uv $(UV_VERSION)"
+          - checkout: self
+            displayName: "Checkout Code"
 
           - script: |
-              uv python install $(PYTHON_VERSION)
-              uv venv .venv --python $(PYTHON_VERSION)
-
-              echo "##vso[task.setvariable variable=VIRTUAL_ENV]$(Build.SourcesDirectory)/.venv"
-              echo "##vso[task.prependpath]$(Build.SourcesDirectory)/.venv/bin"
-            displayName: "Setup Python $(PYTHON_VERSION) with uv"
-
-          - script: |
-              uv pip install --upgrade pip setuptools wheel build twine
-            displayName: "Install Build Tools"
-
-          - script: |
-              if [ "$(CUDA_VERSION)" != "cpu" ]; then
-                echo "##vso[task.setvariable variable=CUDA_HOME]/usr/local/cuda"
-                echo "##vso[task.setvariable variable=PATH]/usr/local/cuda/bin:$(PATH)"
-                echo "##vso[task.setvariable variable=LD_LIBRARY_PATH]/usr/local/cuda/lib64:$(LD_LIBRARY_PATH)"
-                echo "##vso[task.setvariable variable=FORCE_CUDA]1"
+              echo "Starting Docker run for $(IMAGE_VERSION)..."
+              
+              docker run --rm \
+                -u root \
+                -v $(System.DefaultWorkingDirectory):/workspace \
+                -w /workspace \
+                -e TARGET_VERSION="${{ parameters.version }}" \
+                -e CUDA_VERSION="$(CUDA_VERSION)" \
+                -e TORCH_VERSION="$(TORCH_VERSION)" \
+                -e TORCH_INDEX="$(TORCH_INDEX)" \
+                -e PYTHON_VERSIONS="$(PYTHON_VERSIONS)" \
+                -e HOST_UID="$(id -u)" \
+                -e HOST_GID="$(id -g)" \
+                $(IMAGE_VERSION) \
+                bash build_wheels.sh
                 
-                # 验证 CUDA 可用性
-                nvcc --version
-                nvidia-smi || echo "No GPU available in container"
-              else
-                echo "##vso[task.setvariable variable=FORCE_CUDA]0"
-                echo "Building CPU-only version"
-              fi
-            displayName: "Setup CUDA $(CUDA_VERSION) Environment"
-
-          - script: |
-              uv pip install torch==$(TORCH_VERSION) --index-url $(TORCH_INDEX)
-              uv pip install numpy transformers accelerate sentencepiece
-              python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}'); print(f'CUDA version: {torch.version.cuda if torch.cuda.is_available() else \"N/A\"}')"
-            displayName: "Install Torch $(TORCH_VERSION) with CUDA $(CUDA_VERSION)"
-
-          - script: |
-              git clone https://github.com/ModelCloud/GPTQModel.git /GPTQModel
-
-          - script: |
-              export BUILD_CUDA_EXT=1
-              export TORCH_CUDA_ARCH_LIST="7.0;7.5;8.0;8.6;8.9;9.0"  # 根据需要的 GPU 架构调整
-
-              # 生成带 CUDA 标签的版本
-              if [ "$(CUDA_VERSION)" == "cpu" ]; then
-                export WHEEL_SUFFIX="+cpu"
-              else
-                export WHEEL_SUFFIX="+cu$(echo $(CUDA_VERSION) | tr -d '.')"
-              fi
-
-              cd /GPTQModel
-              git checkout ${{ parameters.version }}
-
-              python setup.py bdist_wheel
-
-              # 重命名 wheel 添加 CUDA 标签
-              cd dist
-              for file in *.whl; do
-                if [[ "$file" == *"gptqmodel"* ]] && [[ ! "$file" =~ \+(cu|cpu) ]]; then
-                  newname=$(echo "$file" | sed "s/-cp/${WHEEL_SUFFIX}-cp/")
-                  mv "$file" "$newname"
-                  echo "Renamed: $file -> $newname"
-                fi
-              done
-              ls -la
-            displayName: "Build GPTQModel Wheel"
-
-          - script: |
-              cd dist
-              uv pip install gptqmodel*.whl --force-reinstall --no-deps
-              python -c "import gptqmodel; print(f'GPTQModel imported successfully')"
-            displayName: "Test Wheel Import"
-            condition: succeeded()
+            displayName: "Build Matrix in Docker Run"
 
           - task: PublishBuildArtifacts@1
             inputs:
-              pathToPublish: "$(Build.SourcesDirectory)/dist"
-              artifactName: "wheels-$(CUDA_VERSION)-py$(PYTHON_VERSION)"
-            displayName: "Publish Wheel Artifact"
+              pathToPublish: "$(System.DefaultWorkingDirectory)/output_wheels"
+              artifactName: "wheels-$(CUDA_VERSION)"
+            displayName: "Publish Wheel Artifacts"
 
   - stage: PublishToFeed
     displayName: "Publish to Azure Artifacts Feed"
@@ -178,6 +83,7 @@ stages:
 
           - script: |
               mkdir -p $(Build.ArtifactStagingDirectory)/wheels
+              # 将所有构建好的 CUDA 版本的 wheels 汇聚到一个目录
               find $(System.ArtifactsDirectory) -name "*.whl" -type f -exec cp {} $(Build.ArtifactStagingDirectory)/wheels/ \;
               ls -la $(Build.ArtifactStagingDirectory)/wheels/
             displayName: "Collect All Wheels"
